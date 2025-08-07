@@ -248,14 +248,24 @@ class SpectralMatcher:
             if not features1 or not features2:
                 return 0.0
             
-            # Similarité basée sur les caractéristiques
+            # Clés numériques pour la comparaison (exclure les chaînes)
+            numeric_keys = ['energy', 'zero_crossings', 'spectral_centroid', 
+                          'spectral_rolloff', 'spectral_bandwidth', 'rms_energy',
+                          'spectral_flux', 'sample_rate', 'duration', 'analysis_length',
+                          'peak_frequency', 'low_energy', 'mid_energy', 'high_energy']
+            
+            # Similarité basée sur les caractéristiques numériques
             similarities = []
-            for key in features1:
-                if key in features2:
-                    val1, val2 = float(features1[key]), float(features2[key])
-                    if val1 != 0 and val2 != 0:
-                        sim = 1 - abs(val1 - val2) / max(abs(val1), abs(val2))
-                        similarities.append(max(0, float(sim)))
+            for key in numeric_keys:
+                if key in features1 and key in features2:
+                    try:
+                        val1, val2 = float(features1[key]), float(features2[key])
+                        if val1 != 0 and val2 != 0:
+                            sim = 1 - abs(val1 - val2) / max(abs(val1), abs(val2))
+                            similarities.append(max(0, float(sim)))
+                    except (ValueError, TypeError):
+                        # Ignorer les valeurs non numériques
+                        continue
             
             # Convertir en float pour éviter les erreurs numpy
             result = float(np.mean(similarities)) if similarities else 0.0

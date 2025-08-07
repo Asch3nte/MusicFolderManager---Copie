@@ -53,6 +53,12 @@ class AnalysisResult:
     fingerprint_data: Optional[Dict[str, Any]] = None
     spectral_features: Optional[Dict[str, Any]] = None
     
+    # NOUVEAU: Résultats détaillés de chaque méthode
+    acoustid_result: Optional[Dict[str, Any]] = None
+    spectral_result: Optional[Dict[str, Any]] = None
+    musicbrainz_result: Optional[Dict[str, Any]] = None
+    lastfm_result: Optional[Dict[str, Any]] = None
+    
     # Informations de processus
     processing_time: float = 0.0
     cache_hit: bool = False
@@ -74,6 +80,10 @@ class AnalysisResult:
             'audio_properties': self.audio_properties,
             'fingerprint_data': self.fingerprint_data,
             'spectral_features': self.spectral_features,
+            'acoustid_result': self.acoustid_result,
+            'spectral_result': self.spectral_result,
+            'musicbrainz_result': self.musicbrainz_result,
+            'lastfm_result': self.lastfm_result,
             'processing_time': self.processing_time,
             'cache_hit': self.cache_hit,
             'methods_attempted': [m.value for m in self.methods_attempted],
@@ -94,6 +104,10 @@ class AnalysisResult:
             audio_properties=data.get('audio_properties', {}),
             fingerprint_data=data.get('fingerprint_data'),
             spectral_features=data.get('spectral_features'),
+            acoustid_result=data.get('acoustid_result'),
+            spectral_result=data.get('spectral_result'),
+            musicbrainz_result=data.get('musicbrainz_result'),
+            lastfm_result=data.get('lastfm_result'),
             processing_time=data.get('processing_time', 0.0),
             cache_hit=data.get('cache_hit', False),
             methods_attempted=[AnalysisMethod(m) for m in data.get('methods_attempted', [])],
@@ -184,9 +198,13 @@ class UnifiedAudioProcessor:
         
         # Configuration du chemin fpcalc
         current_dir = Path(__file__).parent
-        self.fpcalc_path = current_dir / "audio_tools" / "fpcalc.exe"
+        # audio_tools est dans le dossier parent de core/
+        self.fpcalc_path = current_dir.parent / "audio_tools" / "fpcalc.exe"
         if self.fpcalc_path.exists():
             os.environ['FPCALC'] = str(self.fpcalc_path)
+            self.logger.info(f"✅ fpcalc configuré: {self.fpcalc_path}")
+        else:
+            self.logger.warning(f"⚠️ fpcalc non trouvé: {self.fpcalc_path}")
     
     @property
     def fingerprint_component(self):
@@ -200,7 +218,7 @@ class UnifiedAudioProcessor:
     def spectral_component(self):
         """Composant d'analyse spectrale (lazy loading)"""
         if self._spectral_component is None:
-            from spectral_analyzer import SpectralMatcher
+            from core.spectral_analyzer import SpectralMatcher
             self._spectral_component = SpectralMatcher(
                 threshold=self.thresholds['spectral_similarity_threshold']
             )
@@ -221,6 +239,37 @@ class UnifiedAudioProcessor:
             from advanced_metadata_extractor import AdvancedMetadataExtractor
             self._metadata_component = AdvancedMetadataExtractor()
         return self._metadata_component
+    
+    def get_available_methods(self) -> List[AnalysisMethod]:
+        """Retourne la liste des méthodes d'analyse disponibles"""
+        available = []
+        
+        # Vérifier AcoustID
+        try:
+            if self.api_key or os.path.exists(self.fpcalc_path):
+                available.append(AnalysisMethod.ACOUSTICID)
+        except:
+            pass
+        
+        # Vérifier l'analyse spectrale
+        try:
+            available.append(AnalysisMethod.SPECTRAL)
+        except:
+            pass
+        
+        # Vérifier MusicBrainz
+        try:
+            available.append(AnalysisMethod.MUSICBRAINZ)
+        except:
+            pass
+        
+        # Vérifier l'extraction de métadonnées
+        try:
+            available.append(AnalysisMethod.METADATA)
+        except:
+            pass
+        
+        return available
     
     def process_file(self, file_path: str, methods: List[AnalysisMethod] = None) -> AnalysisResult:
         """
@@ -267,13 +316,52 @@ class UnifiedAudioProcessor:
             # Extraire les propriétés audio de base
             result.audio_properties = self._extract_audio_properties(file_path)
             
-            # Essayer chaque méthode dans l'ordre jusqu'à succès
+            # Essayer toutes les méthodes et stocker tous les résultats
+            best_method = None
+            best_confidence = 0.0
+            best_metadata = {}
+            
             for method in methods:
                 try:
                     result.methods_attempted.append(method)
                     self.logger.info(f"   🔍 Tentative {method.value}...")
                     
                     method_result = self._apply_method(file_path, method, result)
+                    
+                    # Stocker le résultat de chaque méthode
+                    if method_result:
+                        method_data = {
+                            'success': True,
+                            'confidence': method_result.confidence,
+                            'metadata': method_result.metadata,
+                            'fingerprint_data': method_result.fingerprint_data,
+                            'spectral_features': method_result.spectral_features
+                        }
+                        
+                        # Stocker selon la méthode
+                        if method == AnalysisMethod.ACOUSTICID:
+                            result.acoustid_result = method_data
+                            result.fingerprint_data = method_result.fingerprint_data
+                        elif method == AnalysisMethod.SPECTRAL:
+                            result.spectral_result = method_data
+                            result.spectral_features = method_result.spectral_features
+                        elif method == AnalysisMethod.MUSICBRAINZ:
+                            result.musicbrainz_result = method_data
+                    else:
+                        # Échec de la méthode
+                        method_data = {
+                            'success': False,
+                            'confidence': 0.0,
+                            'metadata': {},
+                            'error': 'Méthode échouée'
+                        }
+                        
+                        if method == AnalysisMethod.ACOUSTICID:
+                            result.acoustid_result = method_data
+                        elif method == AnalysisMethod.SPECTRAL:
+                            result.spectral_result = method_data
+                        elif method == AnalysisMethod.MUSICBRAINZ:
+                            result.musicbrainz_result = method_data
                     
                     # Obtenir le seuil pour cette méthode
                     threshold_key = f'{method.value}_min_confidence'
@@ -287,24 +375,21 @@ class UnifiedAudioProcessor:
                     threshold = self.thresholds.get(threshold_key, 0.7)
                     
                     if method_result and method_result.confidence >= threshold:
-                        # Succès avec cette méthode
-                        result.status = AnalysisStatus.SUCCESS
-                        result.method_used = method
-                        result.confidence = method_result.confidence
-                        result.metadata.update(method_result.metadata)
+                        # Cette méthode peut être utilisée
+                        if method_result.confidence > best_confidence:
+                            best_method = method
+                            best_confidence = method_result.confidence
+                            best_metadata = method_result.metadata
                         
-                        # Données spécifiques selon la méthode
+                        # Stats par méthode
                         if method == AnalysisMethod.ACOUSTICID:
-                            result.fingerprint_data = method_result.fingerprint_data
                             self.stats['acousticid_successes'] += 1
                         elif method == AnalysisMethod.SPECTRAL:
-                            result.spectral_features = method_result.spectral_features
                             self.stats['spectral_successes'] += 1
                         elif method == AnalysisMethod.MUSICBRAINZ:
                             self.stats['musicbrainz_successes'] += 1
                         
-                        self.logger.info(f"✅ Succès avec {method.value} (confiance: {result.confidence:.2f})")
-                        break
+                        self.logger.info(f"✅ {method.value} succès (confiance: {method_result.confidence:.2f})")
                         
                     else:
                         # Méthode échouée ou confiance insuffisante
@@ -312,18 +397,41 @@ class UnifiedAudioProcessor:
                             self.logger.info(f"⚠️ {method.value} confiance trop faible: {method_result.confidence:.2f}")
                             # Garder les suggestions même si confiance faible
                             if method_result.metadata:
-                                result.suggestions.extend([
+                                result.suggestions.append(
                                     f"{method.value}: {method_result.metadata.get('artist', 'Inconnu')} - {method_result.metadata.get('title', 'Inconnu')} (confiance: {method_result.confidence:.2f})"
-                                ])
+                                )
+                        else:
+                            self.logger.info(f"❌ {method.value} a échoué")
                         
                 except Exception as e:
                     error_msg = f"Erreur {method.value}: {str(e)}"
                     result.errors.append(error_msg)
                     self.logger.warning(error_msg)
                     self.stats['errors'] += 1
+                    
+                    # Stocker l'erreur
+                    method_data = {
+                        'success': False,
+                        'confidence': 0.0,
+                        'metadata': {},
+                        'error': str(e)
+                    }
+                    
+                    if method == AnalysisMethod.ACOUSTICID:
+                        result.acoustid_result = method_data
+                    elif method == AnalysisMethod.SPECTRAL:
+                        result.spectral_result = method_data
+                    elif method == AnalysisMethod.MUSICBRAINZ:
+                        result.musicbrainz_result = method_data
             
-            # Si aucune méthode n'a réussi
-            if result.status == AnalysisStatus.FAILED:
+            # Définir le résultat final basé sur la meilleure méthode
+            if best_method:
+                result.status = AnalysisStatus.SUCCESS
+                result.method_used = best_method
+                result.confidence = best_confidence
+                result.metadata.update(best_metadata)
+                self.logger.info(f"🎯 Meilleure méthode: {best_method.value} (confiance: {best_confidence:.2f})")
+            else:
                 result.status = AnalysisStatus.MANUAL_REVIEW
                 result.manual_review_reason = self._analyze_failure_reason(result)
                 self.stats['manual_reviews'] += 1
@@ -360,31 +468,47 @@ class UnifiedAudioProcessor:
         return None
     
     def _apply_acousticid(self, file_path: str) -> Optional[AnalysisResult]:
-        """Analyse par empreinte acoustique AcoustID"""
+        """Analyse par empreinte acoustique AcoustID avec logs détaillés et gestion erreurs serveur"""
         try:
+            self.logger.info(f"🎧 Début génération fingerprint AcoustID: {Path(file_path).name}")
+            
             # Générer le fingerprint
             fingerprint_data = self.fingerprint_component.generate_fingerprint(file_path)
             if not fingerprint_data or 'fingerprint' not in fingerprint_data:
+                self.logger.warning(f"❌ Échec génération fingerprint: {Path(file_path).name}")
                 return None
             
-            # Requête AcoustID
-            results = lookup(
-                apikey=self.api_key,
-                fingerprint=fingerprint_data['fingerprint'], 
-                duration=fingerprint_data['duration']
-            )
+            duration = fingerprint_data['duration']
+            fingerprint = fingerprint_data['fingerprint']
+            self.logger.info(f"✅ Fingerprint généré: {len(fingerprint)} caractères, durée: {duration:.1f}s")
             
+            # Requête AcoustID avec retry et gestion d'erreurs
+            self.logger.info(f"🌐 Envoi requête AcoustID API...")
+            results = self._acoustid_lookup_with_retry(fingerprint, duration)
+            
+            if not results:
+                self.logger.warning("❌ Échec total API AcoustID après retry")
+                return None
+                
             if not results.get('results'):
+                self.logger.info(f"📊 API AcoustID: 0 résultats trouvés")
                 return None
+            
+            result_count = len(results['results'])
+            self.logger.info(f"📊 API AcoustID: {result_count} résultat(s) reçu(s)")
             
             # Meilleur match
             best_match = max(results['results'], key=lambda x: x['score'])
-            recordings = best_match.get('recordings', [])
+            confidence = best_match['score']
+            self.logger.info(f"🎯 Meilleur match AcoustID: confiance {confidence:.2f}")
             
+            recordings = best_match.get('recordings', [])
             if not recordings:
+                self.logger.warning("⚠️ Aucun enregistrement dans les résultats AcoustID")
                 return None
             
             recording = recordings[0]
+            self.logger.info(f"🎵 Enregistrement trouvé: {recording.get('title', 'Titre inconnu')}")
             
             # Extraire métadonnées
             metadata = {
@@ -400,48 +524,150 @@ class UnifiedAudioProcessor:
                     if isinstance(credit, dict) and 'artist' in credit:
                         artists.append(credit['artist'].get('name', ''))
                 metadata['artist'] = ', '.join(filter(None, artists))
+                self.logger.info(f"👤 Artiste détecté: {metadata['artist']}")
             
             # Albums
             if 'releases' in recording and recording['releases']:
                 release = recording['releases'][0]
                 metadata['album'] = release.get('title', '')
                 metadata['year'] = release.get('date', '')[:4] if release.get('date') else ''
+                self.logger.info(f"💿 Album détecté: {metadata['album']} ({metadata['year']})")
+            
+            self.logger.info(f"✅ AcoustID terminé avec succès: confiance {confidence:.2f}")
             
             return AnalysisResult(
                 status=AnalysisStatus.SUCCESS,
                 file_path=file_path,
-                confidence=best_match['score'],
+                confidence=confidence,
                 method_used=AnalysisMethod.ACOUSTICID,
                 metadata=metadata,
                 fingerprint_data=fingerprint_data
             )
             
         except Exception as e:
-            self.logger.debug(f"AcoustID failed: {e}")
+            self.logger.error(f"💥 Erreur AcoustID: {e}")
             return None
     
+    def _acoustid_lookup_with_retry(self, fingerprint: str, duration: float, max_retries: int = 3) -> Optional[dict]:
+        """Effectue la recherche AcoustID avec retry automatique en cas d'erreur serveur"""
+        import time
+        import acoustid
+        from acoustid import WebServiceError
+        
+        for attempt in range(max_retries):
+            try:
+                self.logger.debug(f"🔄 Tentative {attempt + 1}/{max_retries} API AcoustID")
+                
+                results = lookup(
+                    apikey=self.api_key,
+                    fingerprint=fingerprint, 
+                    duration=duration,
+                    meta=['recordings', 'releasegroups']  # Métadonnées étendues
+                )
+                
+                # Succès
+                self.logger.info(f"✅ API AcoustID réussie (tentative {attempt + 1})")
+                return results
+                
+            except WebServiceError as e:
+                error_msg = str(e)
+                self.logger.warning(f"⚠️ Erreur API AcoustID (tentative {attempt + 1}): {error_msg}")
+                
+                # Erreurs qui ne justifient pas de retry
+                if "invalid fingerprint" in error_msg or "invalid API key" in error_msg:
+                    self.logger.error(f"❌ Erreur permanente AcoustID: {error_msg}")
+                    return None
+                
+                # Erreurs serveur temporaires (503, JSON invalide, etc.)
+                if "response is not valid JSON" in error_msg or "503" in error_msg:
+                    if attempt < max_retries - 1:
+                        wait_time = (attempt + 1) * 3  # Attente progressive: 3s, 6s, 9s
+                        self.logger.info(f"⏳ Erreur serveur temporaire, retry dans {wait_time}s...")
+                        time.sleep(wait_time)
+                        continue
+                    else:
+                        self.logger.error(f"❌ Échec définitif API AcoustID après {max_retries} tentatives")
+                        return None
+                
+                # Autres erreurs
+                if attempt < max_retries - 1:
+                    wait_time = (attempt + 1) * 2  # Attente plus courte pour autres erreurs
+                    self.logger.info(f"⏳ Retry dans {wait_time}s...")
+                    time.sleep(wait_time)
+                else:
+                    self.logger.error(f"❌ Échec final API AcoustID: {error_msg}")
+                    return None
+                    
+            except Exception as e:
+                self.logger.warning(f"⚠️ Exception inattendue AcoustID (tentative {attempt + 1}): {e}")
+                
+                if attempt < max_retries - 1:
+                    wait_time = (attempt + 1) * 2
+                    self.logger.info(f"⏳ Retry exception dans {wait_time}s...")
+                    time.sleep(wait_time)
+                else:
+                    self.logger.error(f"❌ Échec final exception AcoustID: {e}")
+                    return None
+        
+        return None
+    
     def _apply_spectral_analysis(self, file_path: str) -> Optional[AnalysisResult]:
-        """Analyse spectrale du fichier"""
+        """Analyse spectrale du fichier avec logs détaillés"""
         try:
+            self.logger.info(f"📈 Début analyse spectrale: {Path(file_path).name}")
+            
             # Extraire les caractéristiques spectrales
+            self.logger.info("🔍 Extraction des caractéristiques spectrales...")
             features = self.spectral_component._extract_features(file_path)
             if not features:
+                self.logger.warning("❌ Échec extraction des caractéristiques spectrales")
                 return None
             
-            # Pour l'instant, pas de base de données de référence pour le matching
-            # Donc on retourne les caractéristiques avec une confiance faible
-            # mais on peut améliorer en analysant les caractéristiques
+            # Log détaillé des caractéristiques extraites
+            duration = features.get('duration', 0)
+            sample_rate = features.get('sample_rate', 0)
+            format_type = features.get('format', 'Inconnu')
+            
+            self.logger.info(f"📊 Caractéristiques extraites:")
+            self.logger.info(f"   ⏱️ Durée: {duration:.1f}s")
+            self.logger.info(f"   🎚️ Sample rate: {sample_rate}Hz")
+            self.logger.info(f"   📁 Format: {format_type}")
+            
+            # Caractéristiques spectrales avancées
+            if 'spectral_centroid_mean' in features:
+                self.logger.info(f"   🌊 Centroïde spectral: {features['spectral_centroid_mean']:.2f}")
+            if 'spectral_rolloff_mean' in features:
+                self.logger.info(f"   📉 Rolloff spectral: {features['spectral_rolloff_mean']:.2f}")
+            if 'mfcc_mean' in features and len(features['mfcc_mean']) > 0:
+                self.logger.info(f"   🔊 MFCC moyens: {features['mfcc_mean'][0]:.3f}")
             
             # Calculer une "confiance" basée sur la qualité des features
             confidence = 0.1  # Confiance de base faible
             
             # Augmenter la confiance si on a des données exploitables
-            if features.get('duration', 0) > 30:  # Au moins 30 secondes
+            if duration > 30:  # Au moins 30 secondes
                 confidence += 0.1
-            if features.get('sample_rate', 0) >= 44100:  # Qualité CD ou mieux
+                self.logger.info("✅ Durée suffisante (+0.1 confiance)")
+                
+            if sample_rate >= 44100:  # Qualité CD ou mieux
                 confidence += 0.1
+                self.logger.info("✅ Qualité audio élevée (+0.1 confiance)")
+                
             if features.get('spectral_centroid_mean', 0) > 0:  # Features spectrales valides
                 confidence += 0.1
+                self.logger.info("✅ Caractéristiques spectrales valides (+0.1 confiance)")
+            
+            # Analyse du contenu spectral
+            spectral_centroid = features.get('spectral_centroid_mean', 0)
+            if spectral_centroid > 0:
+                if spectral_centroid > 3000:
+                    self.logger.info("🎼 Type détecté: Probable contenu aigus (voix/cymbales)")
+                elif spectral_centroid < 1000:
+                    self.logger.info("🎼 Type détecté: Probable contenu graves (basse/batterie)")
+                else:
+                    self.logger.info("🎼 Type détecté: Contenu spectral équilibré")
+            
+            self.logger.info(f"📊 Analyse spectrale terminée: confiance finale {confidence:.2f}")
             
             return AnalysisResult(
                 status=AnalysisStatus.PARTIAL_SUCCESS,
@@ -449,16 +675,16 @@ class UnifiedAudioProcessor:
                 confidence=confidence,
                 method_used=AnalysisMethod.SPECTRAL,
                 metadata={
-                    'duration': features.get('duration', 0),
-                    'format': features.get('format', ''),
-                    'sample_rate': features.get('sample_rate', 0),
+                    'duration': duration,
+                    'format': format_type,
+                    'sample_rate': sample_rate,
                     'spectral_quality': 'basic'
                 },
                 spectral_features=features
             )
             
         except Exception as e:
-            self.logger.debug(f"Spectral analysis failed: {e}")
+            self.logger.error(f"💥 Erreur analyse spectrale: {e}")
             return None
     
     def _apply_musicbrainz_search(self, file_path: str, base_result: AnalysisResult) -> Optional[AnalysisResult]:

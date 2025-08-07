@@ -9,6 +9,7 @@ import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 import threading
 import json
+import os
 from pathlib import Path
 from typing import List, Dict, Any, Optional
 
@@ -22,81 +23,8 @@ try:
     print("🔍 Debug: Import du core enhanced OK")
 except ImportError as e:
     print(f"🔍 Debug: Import du core enhanced échoué: {e}")
-    # Fallback - utiliser des classes simulées
     ENHANCED_CORE_AVAILABLE = False
-    # Fallback - utiliser des classes simulées
-    ENHANCED_CORE_AVAILABLE = False
-    
-    class MockAnalysisStatus:
-        SUCCESS = "success"
-        PARTIAL_SUCCESS = "partial_success"
-        FAILED = "failed"
-        MANUAL_REVIEW = "manual_review"
-        CACHED = "cached"
-    
-    class MockAnalysisMethod:
-        ACOUSTICID = "acousticid"
-        SPECTRAL = "spectral"
-        MUSICBRAINZ = "musicbrainz"
-        METADATA_EXTRACTION = "metadata"
-    
-    class MockAnalysisResult:
-        def __init__(self, file_path, status="pending"):
-            self.file_path = file_path
-            self.status = status
-            self.method_used = None
-            self.confidence = 0.0
-            self.processing_time = 0.0
-            self.cache_hit = False
-            self.metadata = {}
-            self.audio_properties = {}
-            self.errors = []
-            self.suggestions = []
-    
-    class MockEnhancedUnifiedAdapter:
-        def __init__(self, **kwargs):
-            self.is_processing = False
-            self.selected_files = []
-            
-        def configure_api_key(self, key): pass
-        def configure_processing_options(self, **kwargs): pass
-        def configure_thresholds(self, **kwargs): pass
-        def scan_directory(self, directory): 
-            import os
-            from pathlib import Path
-            audio_ext = {'.mp3', '.flac', '.wav', '.m4a', '.ogg', '.wma', '.aac', '.opus'}
-            files = []
-            try:
-                for root, dirs, filenames in os.walk(directory):
-                    for filename in filenames:
-                        if Path(filename).suffix.lower() in audio_ext:
-                            file_path = os.path.join(root, filename)
-                            # Vérification basique de l'existence et de la taille
-                            if os.path.exists(file_path) and os.path.getsize(file_path) > 1024:
-                                files.append(file_path)
-                print(f"📁 Mock Scanner: {len(files)} fichiers audio trouvés")
-            except Exception as e:
-                print(f"❌ Erreur scan: {e}")
-            return files
-        def set_file_selection(self, file_path, selected): pass
-        def get_selected_files(self): return self.selected_files
-        def process_files_async(self, files, methods): pass
-        def stop_processing(self): pass
-        def clear_cache(self): pass
-        def export_results(self, file_path, format_type): pass
-        def get_statistics(self): 
-            return {
-                'total_processed': 0, 'success_rate': 0.0, 'cache_hit_rate': 0.0,
-                'average_processing_time': 0.0, 'total_processing_time': 0.0,
-                'acousticid_successes': 0, 'spectral_successes': 0, 'musicbrainz_successes': 0,
-                'manual_reviews': 0, 'errors': 0, 'corrupted_files_count': 0, 'manual_selections_count': 0
-            }
-    
-    # Utiliser les classes mock
-    AnalysisStatus = MockAnalysisStatus()
-    AnalysisMethod = MockAnalysisMethod()
-    AnalysisResult = MockAnalysisResult
-    EnhancedUnifiedAdapter = MockEnhancedUnifiedAdapter
+    raise ImportError(f"Impossible d'importer les modules Enhanced: {e}")
 
 print("🔍 Debug: Configuration des imports terminée")
 
@@ -157,23 +85,14 @@ class CompleteMusicManagerGUI:
         
         # Initialiser l'adaptateur APRÈS setup_ui pour avoir toutes les méthodes disponibles
         print("🔧 Initialisation de l'adaptateur...")
-        if ENHANCED_CORE_AVAILABLE:
-            self.adapter = EnhancedUnifiedAdapter()
-            # Configurer les callbacks
-            self.adapter.set_callbacks(
-                progress_callback=self.on_progress_update,
-                status_callback=self.on_status_update,
-                result_callback=self.on_results_ready,
-                manual_selection_callback=self.on_manual_selection_request
-            )
-        else:
-            self.adapter = EnhancedUnifiedAdapter(
-                api_key=self.api_key.get(),
-                progress_callback=self.on_progress_update,
-                status_callback=self.on_status_update,
-                results_callback=self.on_results_ready,
-                manual_selection_callback=self.on_manual_selection_request
-            )
+        self.adapter = EnhancedUnifiedAdapter()
+        # Configurer les callbacks
+        self.adapter.set_callbacks(
+            progress_callback=self.on_progress_update,
+            status_callback=self.on_status_update,
+            result_callback=self.on_results_ready,
+            manual_selection_callback=self.on_manual_selection_request
+        )
         
         # Mettre à jour les labels après la création de l'interface
         self.update_threshold_labels()
@@ -337,13 +256,45 @@ class CompleteMusicManagerGUI:
         self.progress_bar = ttk.Progressbar(progress_group, mode='determinate')
         self.progress_bar.pack(fill='x', pady=5)
         
-        # Zone de statut avec défilement
+        # Zone de statut avec défilement et logs détaillés
         status_frame = ttk.Frame(progress_group)
         status_frame.pack(fill='x', pady=5)
         
-        self.status_text = tk.Text(status_frame, height=6, wrap='word')
+        # Boutons de contrôle des logs
+        log_controls = ttk.Frame(status_frame)
+        log_controls.pack(fill='x', pady=(0,5))
+        
+        ttk.Button(log_controls, text="🧹 Effacer Logs", 
+                  command=self.clear_logs).pack(side='left', padx=5)
+        ttk.Button(log_controls, text="🔍 Logs Détaillés", 
+                  command=self.open_detailed_logs_window).pack(side='right', padx=5)
+        
+        # Checkboxes pour filtrer les logs
+        self.show_detailed_logs = tk.BooleanVar(value=True)
+        self.show_api_logs = tk.BooleanVar(value=True)
+        self.show_spectral_logs = tk.BooleanVar(value=True)
+        
+        ttk.Checkbutton(log_controls, text="📊 Logs Détaillés", 
+                       variable=self.show_detailed_logs).pack(side='left', padx=5)
+        ttk.Checkbutton(log_controls, text="🌐 Logs API", 
+                       variable=self.show_api_logs).pack(side='left', padx=5)
+        ttk.Checkbutton(log_controls, text="📈 Logs Spectral", 
+                       variable=self.show_spectral_logs).pack(side='left', padx=5)
+        
+        # Zone de texte avec couleurs pour les logs
+        self.status_text = tk.Text(status_frame, height=8, wrap='word', font=('Consolas', 9))
         status_scroll = ttk.Scrollbar(status_frame, orient='vertical', command=self.status_text.yview)
         self.status_text.configure(yscrollcommand=status_scroll.set)
+        
+        # Configuration des couleurs pour les différents types de logs
+        self.status_text.tag_configure("INFO", foreground="#0066CC")
+        self.status_text.tag_configure("SUCCESS", foreground="#008000")
+        self.status_text.tag_configure("ERROR", foreground="#FF0000")
+        self.status_text.tag_configure("WARNING", foreground="#FF8800")
+        self.status_text.tag_configure("SPECTRAL", foreground="#8A2BE2")
+        self.status_text.tag_configure("API", foreground="#FF6347")
+        self.status_text.tag_configure("FINGERPRINT", foreground="#4682B4")
+        self.status_text.tag_configure("CACHE", foreground="#708090")
         
         self.status_text.pack(side='left', fill='both', expand=True)
         status_scroll.pack(side='right', fill='y')
@@ -715,11 +666,311 @@ class CompleteMusicManagerGUI:
         # Ajouter aux résultats
         self.add_result_to_tree(result)
     
-    def on_status_update(self, message: str):
-        """Callback de statut"""
-        self.status_text.insert('end', f"{message}\n")
+    def on_status_update(self, message: str, level: str = "INFO"):
+        """Callback de statut avec support des niveaux de log et filtrage"""
+        import time
+        
+        # Vérifier les filtres
+        if level == "SPECTRAL" and not self.show_spectral_logs.get():
+            return
+        if level == "API" and not self.show_api_logs.get():
+            return
+        if level in ["FINGERPRINT", "CACHE"] and not self.show_detailed_logs.get():
+            return
+        
+        # Ajouter timestamp
+        timestamp = time.strftime("%H:%M:%S")
+        formatted_message = f"[{timestamp}] {message}\n"
+        
+        # Insérer avec la couleur appropriée
+        self.status_text.insert('end', formatted_message, level)
         self.status_text.see('end')
         self.root.update_idletasks()
+    
+    def clear_logs(self):
+        """Efface la console de logs"""
+        self.status_text.delete('1.0', 'end')
+        self.on_status_update("🧹 Console de logs effacée", "INFO")
+    
+    def open_detailed_logs_window(self):
+        """Ouvre une fenêtre détaillée et redimensionnable pour les logs"""
+        # Vérifier si la fenêtre existe déjà
+        if hasattr(self, 'detailed_logs_window') and self.detailed_logs_window.winfo_exists():
+            # Mettre la fenêtre au premier plan
+            self.detailed_logs_window.lift()
+            self.detailed_logs_window.focus()
+            return
+        
+        # Créer la fenêtre de logs détaillés
+        self.detailed_logs_window = tk.Toplevel(self.root)
+        self.detailed_logs_window.title("🔍 Logs Détaillés - Enhanced Music Manager")
+        self.detailed_logs_window.geometry("900x600")
+        self.detailed_logs_window.minsize(600, 400)
+        
+        # Configuration de la fenêtre
+        main_frame = ttk.Frame(self.detailed_logs_window)
+        main_frame.pack(fill='both', expand=True, padx=10, pady=10)
+        
+        # === EN-TÊTE ===
+        header_frame = ttk.Frame(main_frame)
+        header_frame.pack(fill='x', pady=(0,10))
+        
+        title_label = ttk.Label(header_frame, text="📊 Console de Logs Détaillés", 
+                               font=('Arial', 14, 'bold'))
+        title_label.pack(side='left')
+        
+        # Boutons de contrôle
+        controls_frame = ttk.Frame(header_frame)
+        controls_frame.pack(side='right')
+        
+        ttk.Button(controls_frame, text="🧹 Effacer", 
+                  command=self.clear_detailed_logs).pack(side='left', padx=2)
+        ttk.Button(controls_frame, text="💾 Sauvegarder", 
+                  command=self.save_logs_to_file).pack(side='left', padx=2)
+        ttk.Button(controls_frame, text="🔄 Actualiser", 
+                  command=self.refresh_detailed_logs).pack(side='left', padx=2)
+        
+        # === FILTRES ===
+        filters_frame = ttk.LabelFrame(main_frame, text="🎯 Filtres de Logs", padding=5)
+        filters_frame.pack(fill='x', pady=(0,10))
+        
+        # Première ligne de filtres
+        filters_row1 = ttk.Frame(filters_frame)
+        filters_row1.pack(fill='x')
+        
+        self.detailed_show_info = tk.BooleanVar(value=True)
+        self.detailed_show_success = tk.BooleanVar(value=True)
+        self.detailed_show_warning = tk.BooleanVar(value=True)
+        self.detailed_show_error = tk.BooleanVar(value=True)
+        
+        ttk.Checkbutton(filters_row1, text="ℹ️ Info", 
+                       variable=self.detailed_show_info,
+                       command=self.update_detailed_logs_filter).pack(side='left', padx=5)
+        ttk.Checkbutton(filters_row1, text="✅ Succès", 
+                       variable=self.detailed_show_success,
+                       command=self.update_detailed_logs_filter).pack(side='left', padx=5)
+        ttk.Checkbutton(filters_row1, text="⚠️ Warnings", 
+                       variable=self.detailed_show_warning,
+                       command=self.update_detailed_logs_filter).pack(side='left', padx=5)
+        ttk.Checkbutton(filters_row1, text="❌ Erreurs", 
+                       variable=self.detailed_show_error,
+                       command=self.update_detailed_logs_filter).pack(side='left', padx=5)
+        
+        # Deuxième ligne de filtres
+        filters_row2 = ttk.Frame(filters_frame)
+        filters_row2.pack(fill='x', pady=(5,0))
+        
+        self.detailed_show_spectral = tk.BooleanVar(value=True)
+        self.detailed_show_api = tk.BooleanVar(value=True)
+        self.detailed_show_fingerprint = tk.BooleanVar(value=True)
+        self.detailed_show_cache = tk.BooleanVar(value=True)
+        
+        ttk.Checkbutton(filters_row2, text="📈 Spectral", 
+                       variable=self.detailed_show_spectral,
+                       command=self.update_detailed_logs_filter).pack(side='left', padx=5)
+        ttk.Checkbutton(filters_row2, text="🌐 API", 
+                       variable=self.detailed_show_api,
+                       command=self.update_detailed_logs_filter).pack(side='left', padx=5)
+        ttk.Checkbutton(filters_row2, text="🎧 Fingerprint", 
+                       variable=self.detailed_show_fingerprint,
+                       command=self.update_detailed_logs_filter).pack(side='left', padx=5)
+        ttk.Checkbutton(filters_row2, text="💾 Cache", 
+                       variable=self.detailed_show_cache,
+                       command=self.update_detailed_logs_filter).pack(side='left', padx=5)
+        
+        # === RECHERCHE ===
+        search_frame = ttk.LabelFrame(main_frame, text="🔍 Recherche de Texte", padding=5)
+        search_frame.pack(fill='x', pady=(0,10))
+        
+        search_controls = ttk.Frame(search_frame)
+        search_controls.pack(fill='x')
+        
+        ttk.Label(search_controls, text="Chercher:").pack(side='left', padx=(0,5))
+        
+        self.search_var = tk.StringVar()
+        self.search_entry = ttk.Entry(search_controls, textvariable=self.search_var, width=30)
+        self.search_entry.pack(side='left', padx=(0,5))
+        self.search_entry.bind('<KeyRelease>', self.on_search_change)
+        self.search_entry.bind('<Return>', self.search_next)
+        
+        ttk.Button(search_controls, text="🔍 Suivant", 
+                  command=self.search_next).pack(side='left', padx=2)
+        ttk.Button(search_controls, text="🔙 Précédent", 
+                  command=self.search_previous).pack(side='left', padx=2)
+        ttk.Button(search_controls, text="🧹 Effacer", 
+                  command=self.clear_search).pack(side='left', padx=2)
+        
+        # Variables de recherche
+        self.search_index = 0
+        self.search_matches = []
+        
+        # === ZONE DE LOGS ===
+        logs_frame = ttk.LabelFrame(main_frame, text="📝 Messages de Logs", padding=5)
+        logs_frame.pack(fill='both', expand=True)
+        
+        # Zone de texte avec scrollbars
+        text_frame = ttk.Frame(logs_frame)
+        text_frame.pack(fill='both', expand=True)
+        
+        self.detailed_logs_text = tk.Text(text_frame, wrap='word', font=('Consolas', 10))
+        
+        # Scrollbars
+        v_scroll_detailed = ttk.Scrollbar(text_frame, orient='vertical', command=self.detailed_logs_text.yview)
+        h_scroll_detailed = ttk.Scrollbar(text_frame, orient='horizontal', command=self.detailed_logs_text.xview)
+        self.detailed_logs_text.configure(yscrollcommand=v_scroll_detailed.set, xscrollcommand=h_scroll_detailed.set)
+        
+        # Configuration des couleurs (identiques à la console principale)
+        self.detailed_logs_text.tag_configure("INFO", foreground="#0066CC")
+        self.detailed_logs_text.tag_configure("SUCCESS", foreground="#008000")
+        self.detailed_logs_text.tag_configure("ERROR", foreground="#FF0000")
+        self.detailed_logs_text.tag_configure("WARNING", foreground="#FF8800")
+        self.detailed_logs_text.tag_configure("SPECTRAL", foreground="#8A2BE2")
+        self.detailed_logs_text.tag_configure("API", foreground="#FF6347")
+        self.detailed_logs_text.tag_configure("FINGERPRINT", foreground="#4682B4")
+        self.detailed_logs_text.tag_configure("CACHE", foreground="#708090")
+        
+        # Pack des composants
+        self.detailed_logs_text.pack(side='left', fill='both', expand=True)
+        v_scroll_detailed.pack(side='right', fill='y')
+        h_scroll_detailed.pack(side='bottom', fill='x')
+        
+        # === BARRE DE STATUT ===
+        status_frame_detailed = ttk.Frame(main_frame)
+        status_frame_detailed.pack(fill='x', pady=(10,0))
+        
+        self.detailed_logs_status = tk.StringVar(value="📊 Logs détaillés prêts")
+        ttk.Label(status_frame_detailed, textvariable=self.detailed_logs_status).pack(side='left')
+        
+        # Copier le contenu actuel de la console principale
+        self.refresh_detailed_logs()
+        
+        # Configurer la fermeture
+        self.detailed_logs_window.protocol("WM_DELETE_WINDOW", self.on_detailed_logs_close)
+    
+    def clear_detailed_logs(self):
+        """Efface la console de logs détaillés"""
+        if hasattr(self, 'detailed_logs_text'):
+            self.detailed_logs_text.delete('1.0', 'end')
+            self.detailed_logs_status.set("🧹 Logs détaillés effacés")
+    
+    def save_logs_to_file(self):
+        """Sauvegarde les logs dans un fichier"""
+        try:
+            from tkinter import filedialog
+            import datetime
+            
+            # Créer un nom de fichier par défaut
+            timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+            default_name = f"enhanced_music_manager_logs_{timestamp}.txt"
+            
+            # Demander à l'utilisateur où sauvegarder
+            file_path = filedialog.asksaveasfilename(
+                title="Sauvegarder les logs",
+                defaultextension=".txt",
+                filetypes=[("Fichiers texte", "*.txt"), ("Tous les fichiers", "*.*")],
+                initialvalue=default_name
+            )
+            
+            if file_path:
+                # Récupérer le contenu des logs
+                logs_content = self.status_text.get('1.0', 'end-1c')
+                
+                # Ajouter un en-tête
+                header = f"""
+===== LOGS ENHANCED MUSIC MANAGER =====
+Date de génération: {datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
+Système: Enhanced Music Manager
+Version: 2.0
+========================================
+
+"""
+                
+                # Écrire dans le fichier
+                with open(file_path, 'w', encoding='utf-8') as f:
+                    f.write(header + logs_content)
+                
+                self.on_status_update(f"💾 Logs sauvegardés: {file_path}", "SUCCESS")
+                if hasattr(self, 'detailed_logs_status'):
+                    self.detailed_logs_status.set(f"💾 Sauvegardé: {file_path}")
+                    
+        except Exception as e:
+            self.on_status_update(f"❌ Erreur sauvegarde logs: {str(e)}", "ERROR")
+    
+    def refresh_detailed_logs(self):
+        """Actualise le contenu de la fenêtre de logs détaillés"""
+        if hasattr(self, 'detailed_logs_text'):
+            # Effacer le contenu actuel
+            self.detailed_logs_text.delete('1.0', 'end')
+            
+            # Copier le contenu de la console principale
+            main_logs_content = self.status_text.get('1.0', 'end-1c')
+            
+            # Analyser et afficher ligne par ligne avec les bons tags
+            lines = main_logs_content.split('\n')
+            for line in lines:
+                if line.strip():
+                    # Déterminer le niveau du log basé sur les icônes
+                    level = "INFO"
+                    if "✅" in line or "🟢" in line:
+                        level = "SUCCESS"
+                    elif "❌" in line or "💥" in line:
+                        level = "ERROR"
+                    elif "⚠️" in line or "🟡" in line:
+                        level = "WARNING"
+                    elif "📈" in line or "📊" in line:
+                        level = "SPECTRAL"
+                    elif "🌐" in line or "API" in line:
+                        level = "API"
+                    elif "🎧" in line or "fingerprint" in line or "empreinte" in line:
+                        level = "FINGERPRINT"
+                    elif "💾" in line or "cache" in line:
+                        level = "CACHE"
+                    
+                    # Ajouter la ligne avec le bon tag
+                    self.detailed_logs_text.insert('end', line + '\n', level)
+            
+            # Aller à la fin
+            self.detailed_logs_text.see('end')
+            self.update_detailed_logs_filter()
+            
+            if hasattr(self, 'detailed_logs_status'):
+                total_lines = len([l for l in lines if l.strip()])
+                self.detailed_logs_status.set(f"🔄 Actualisé - {total_lines} lignes de logs")
+    
+    def update_detailed_logs_filter(self):
+        """Met à jour l'affichage des logs selon les filtres sélectionnés"""
+        if not hasattr(self, 'detailed_logs_text'):
+            return
+        
+        # Récupérer tous les tags
+        all_tags = ["INFO", "SUCCESS", "ERROR", "WARNING", "SPECTRAL", "API", "FINGERPRINT", "CACHE"]
+        
+        # Masquer/Afficher selon les filtres
+        for tag in all_tags:
+            if tag == "INFO" and not self.detailed_show_info.get():
+                self.detailed_logs_text.tag_configure(tag, elide=True)
+            elif tag == "SUCCESS" and not self.detailed_show_success.get():
+                self.detailed_logs_text.tag_configure(tag, elide=True)
+            elif tag == "ERROR" and not self.detailed_show_error.get():
+                self.detailed_logs_text.tag_configure(tag, elide=True)
+            elif tag == "WARNING" and not self.detailed_show_warning.get():
+                self.detailed_logs_text.tag_configure(tag, elide=True)
+            elif tag == "SPECTRAL" and not self.detailed_show_spectral.get():
+                self.detailed_logs_text.tag_configure(tag, elide=True)
+            elif tag == "API" and not self.detailed_show_api.get():
+                self.detailed_logs_text.tag_configure(tag, elide=True)
+            elif tag == "FINGERPRINT" and not self.detailed_show_fingerprint.get():
+                self.detailed_logs_text.tag_configure(tag, elide=True)
+            elif tag == "CACHE" and not self.detailed_show_cache.get():
+                self.detailed_logs_text.tag_configure(tag, elide=True)
+            else:
+                self.detailed_logs_text.tag_configure(tag, elide=False)
+    
+    def on_detailed_logs_close(self):
+        """Gestionnaire de fermeture de la fenêtre de logs détaillés"""
+        if hasattr(self, 'detailed_logs_window'):
+            self.detailed_logs_window.destroy()
+            delattr(self, 'detailed_logs_window')
     
     def on_results_ready(self, results: List):
         """Callback des résultats finaux"""
@@ -800,7 +1051,7 @@ class CompleteMusicManagerGUI:
         """Affiche une fenêtre détaillée pour un résultat"""
         detail_window = tk.Toplevel(self.root)
         detail_window.title(f"🔍 Détails - {Path(result.file_path).name}")
-        detail_window.geometry("600x500")
+        detail_window.geometry("700x600")
         
         # Zone de texte avec les détails
         text_widget = tk.Text(detail_window, wrap='word', font=('Consolas', 10))
@@ -809,31 +1060,121 @@ class CompleteMusicManagerGUI:
         # Formater les détails
         details = f"📁 Fichier: {result.file_path}\n\n"
         details += f"📊 Statut: {result.status.value}\n"
-        details += f"🎯 Méthode: {result.method_used.value if result.method_used else 'Aucune'}\n"
-        details += f"📈 Confiance: {result.confidence:.2f}\n"
+        details += f"🎯 Méthode gagnante: {result.method_used.value if result.method_used else 'Aucune'}\n"
+        details += f"📈 Confiance finale: {result.confidence:.2f}\n"
         details += f"⏱️ Temps de traitement: {result.processing_time:.2f}s\n"
         details += f"💾 Cache: {'Oui' if result.cache_hit else 'Non'}\n\n"
         
-        if result.metadata:
-            details += "🎵 Métadonnées:\n"
-            for key, value in result.metadata.items():
-                details += f"   {key}: {value}\n"
+        # === RÉSULTATS DÉTAILLÉS PAR MÉTHODE ===
+        details += "🔬 RÉSULTATS DÉTAILLÉS PAR MÉTHODE\n"
+        details += "=" * 50 + "\n\n"
+        
+        # AcoustID
+        details += "🎧 ACOUSTID:\n"
+        if result.acoustid_result:
+            if result.acoustid_result.get('success'):
+                conf = result.acoustid_result.get('confidence', 0)
+                meta = result.acoustid_result.get('metadata', {})
+                details += f"   ✅ Succès (confiance: {conf:.3f})\n"
+                if meta.get('artist'):
+                    details += f"   👤 Artiste: {meta.get('artist')}\n"
+                if meta.get('title'):
+                    details += f"   🎵 Titre: {meta.get('title')}\n"
+                if meta.get('album'):
+                    details += f"   💿 Album: {meta.get('album')}\n"
+                if meta.get('year'):
+                    details += f"   📅 Année: {meta.get('year')}\n"
+            else:
+                error = result.acoustid_result.get('error', 'Échec')
+                details += f"   ❌ Échec: {error}\n"
+        else:
+            details += "   ⚪ Non testé\n"
+        details += "\n"
+        
+        # Spectral
+        details += "📊 ANALYSE SPECTRALE:\n"
+        if result.spectral_result:
+            if result.spectral_result.get('success'):
+                conf = result.spectral_result.get('confidence', 0)
+                meta = result.spectral_result.get('metadata', {})
+                details += f"   ✅ Succès (confiance: {conf:.3f})\n"
+                if meta.get('artist'):
+                    details += f"   👤 Artiste: {meta.get('artist')}\n"
+                if meta.get('title'):
+                    details += f"   🎵 Titre: {meta.get('title')}\n"
+                if meta.get('genre'):
+                    details += f"   🎭 Genre: {meta.get('genre')}\n"
+                if meta.get('style'):
+                    details += f"   🎨 Style: {meta.get('style')}\n"
+            else:
+                error = result.spectral_result.get('error', 'Échec')
+                details += f"   ❌ Échec: {error}\n"
+        else:
+            details += "   ⚪ Non testé\n"
+        details += "\n"
+        
+        # MusicBrainz
+        details += "🌐 MUSICBRAINZ:\n"
+        if result.musicbrainz_result:
+            if result.musicbrainz_result.get('success'):
+                conf = result.musicbrainz_result.get('confidence', 0)
+                meta = result.musicbrainz_result.get('metadata', {})
+                details += f"   ✅ Succès (confiance: {conf:.3f})\n"
+                if meta.get('artist'):
+                    details += f"   👤 Artiste: {meta.get('artist')}\n"
+                if meta.get('title'):
+                    details += f"   🎵 Titre: {meta.get('title')}\n"
+                if meta.get('album'):
+                    details += f"   💿 Album: {meta.get('album')}\n"
+            else:
+                error = result.musicbrainz_result.get('error', 'Échec')
+                details += f"   ❌ Échec: {error}\n"
+        else:
+            details += "   ⚪ Non testé\n"
+        details += "\n"
+        
+        # Last.fm (si disponible)
+        if hasattr(result, 'lastfm_result') and result.lastfm_result:
+            details += "🎵 LAST.FM:\n"
+            if result.lastfm_result.get('success'):
+                conf = result.lastfm_result.get('confidence', 0)
+                meta = result.lastfm_result.get('metadata', {})
+                details += f"   ✅ Succès (confiance: {conf:.3f})\n"
+                if meta.get('artist'):
+                    details += f"   👤 Artiste: {meta.get('artist')}\n"
+                if meta.get('title'):
+                    details += f"   🎵 Titre: {meta.get('title')}\n"
+            else:
+                error = result.lastfm_result.get('error', 'Échec')
+                details += f"   ❌ Échec: {error}\n"
             details += "\n"
         
+        # === MÉTADONNÉES FINALES ===
+        if result.metadata:
+            details += "🎵 MÉTADONNÉES FINALES:\n"
+            details += "=" * 30 + "\n"
+            for key, value in result.metadata.items():
+                if value:
+                    details += f"   {key}: {value}\n"
+            details += "\n"
+        
+        # === PROPRIÉTÉS AUDIO ===
         if result.audio_properties:
-            details += "📀 Propriétés Audio:\n"
+            details += "📀 PROPRIÉTÉS AUDIO:\n"
+            details += "=" * 25 + "\n"
             for key, value in result.audio_properties.items():
                 details += f"   {key}: {value}\n"
             details += "\n"
         
+        # === ERREURS ET SUGGESTIONS ===
         if result.errors:
-            details += "❌ Erreurs:\n"
+            details += "❌ ERREURS:\n"
             for error in result.errors:
                 details += f"   • {error}\n"
             details += "\n"
         
         if result.suggestions:
-            details += "💡 Suggestions:\n"
+            details += "💡 SUGGESTIONS:\n"
             for suggestion in result.suggestions:
                 details += f"   • {suggestion}\n"
         
@@ -1002,83 +1343,469 @@ class CompleteMusicManagerGUI:
 
 
 class ManualSelectionDialog:
-    """Dialogue pour la sélection manuelle des résultats MusicBrainz"""
+    """Dialogue pour la sélection manuelle des résultats MusicBrainz avec interface complète"""
     
     def __init__(self, parent, file_path: str, candidates: List[Dict[str, Any]]):
         self.parent = parent
         self.file_path = file_path
         self.candidates = candidates
         self.selected_candidate = None
+        self.selected_choices = {}  # Pour stocker les choix multiples
         
     def show(self) -> Dict[str, Any]:
         """Affiche le dialogue et retourne le candidat sélectionné"""
-        dialog = tk.Toplevel(self.parent)
-        dialog.title(f"🎼 Sélection Manuelle - {Path(self.file_path).name}")
-        dialog.geometry("700x500")
-        dialog.modal = True
-        dialog.grab_set()
+        self.dialog = tk.Toplevel(self.parent)
+        self.dialog.title(f"🎼 Sélection Manuelle - {Path(self.file_path).name}")
+        self.dialog.geometry("900x700")
+        self.dialog.modal = True
+        self.dialog.grab_set()
         
-        # Instructions
-        info_label = ttk.Label(dialog, 
-            text=f"Plusieurs résultats trouvés pour '{Path(self.file_path).name}'. Sélectionnez le bon:",
-            font=('', 10, 'bold'))
-        info_label.pack(pady=10)
-        
-        # Liste des candidats
-        candidates_frame = ttk.Frame(dialog)
-        candidates_frame.pack(fill='both', expand=True, padx=10, pady=10)
-        
-        # Treeview pour les candidats
-        columns = ('Confiance', 'Artiste', 'Titre', 'Album', 'Année')
-        candidates_tree = ttk.Treeview(candidates_frame, columns=columns, show='headings', height=10)
-        
-        for col in columns:
-            candidates_tree.heading(col, text=col)
-            candidates_tree.column(col, width=120)
-        
-        # Scrollbar
-        scrollbar = ttk.Scrollbar(candidates_frame, orient='vertical', command=candidates_tree.yview)
-        candidates_tree.configure(yscrollcommand=scrollbar.set)
-        
-        # Ajouter les candidats
-        for i, candidate in enumerate(self.candidates):
-            candidates_tree.insert('', 'end', values=(
-                f"{candidate.get('confidence', 0):.2f}",
-                candidate.get('artist', ''),
-                candidate.get('title', ''),
-                candidate.get('album', ''),
-                candidate.get('year', '')
-            ), tags=(str(i),))
-        
-        candidates_tree.pack(side='left', fill='both', expand=True)
-        scrollbar.pack(side='right', fill='y')
-        
-        # Boutons
-        buttons_frame = ttk.Frame(dialog)
-        buttons_frame.pack(pady=10)
-        
-        def on_select():
-            selection = candidates_tree.selection()
-            if selection:
-                index = int(candidates_tree.item(selection[0])['tags'][0])
-                self.selected_candidate = self.candidates[index]
-                dialog.destroy()
-        
-        def on_skip():
-            self.selected_candidate = None
-            dialog.destroy()
-        
-        ttk.Button(buttons_frame, text="✅ Sélectionner", command=on_select).pack(side='left', padx=5)
-        ttk.Button(buttons_frame, text="⏭️ Ignorer", command=on_skip).pack(side='left', padx=5)
-        
-        # Double-clic pour sélectionner
-        candidates_tree.bind('<Double-1>', lambda e: on_select())
+        # Créer l'interface complète
+        self.setup_manual_selection_ui()
         
         # Centrer le dialogue
-        dialog.transient(self.parent)
-        dialog.wait_window(dialog)
+        self.dialog.transient(self.parent)
+        self.dialog.wait_window(self.dialog)
         
         return self.selected_candidate
+    
+    def setup_manual_selection_ui(self):
+        """Configure l'interface de sélection manuelle complète"""
+        
+        # === EN-TÊTE ===
+        header_frame = ttk.Frame(self.dialog)
+        header_frame.pack(fill='x', padx=10, pady=10)
+        
+        # Informations du fichier
+        file_info = ttk.LabelFrame(header_frame, text="📁 Fichier à Analyser", padding=10)
+        file_info.pack(fill='x', pady=(0,10))
+        
+        filename = Path(self.file_path).name
+        ttk.Label(file_info, text=f"🎵 Fichier: {filename}", font=('Arial', 11, 'bold')).pack(anchor='w')
+        ttk.Label(file_info, text=f"📁 Chemin: {self.file_path}", font=('Arial', 9)).pack(anchor='w')
+        
+        try:
+            file_size = os.path.getsize(self.file_path) / (1024 * 1024)
+            ttk.Label(file_info, text=f"📊 Taille: {file_size:.1f} MB", font=('Arial', 9)).pack(anchor='w')
+        except:
+            pass
+        
+        # === SECTION PRINCIPALE ===
+        main_frame = ttk.Frame(self.dialog)
+        main_frame.pack(fill='both', expand=True, padx=10, pady=(0,10))
+        
+        # === SUGGESTIONS MUSICBRAINZ ===
+        suggestions_frame = ttk.LabelFrame(main_frame, text="🎼 Suggestions MusicBrainz", padding=10)
+        suggestions_frame.pack(fill='both', expand=True, pady=(0,10))
+        
+        # Instructions
+        instructions = ttk.Label(suggestions_frame, 
+            text=f"📋 {len(self.candidates)} suggestion(s) trouvée(s). Sélectionnez la meilleure correspondance:",
+            font=('Arial', 10))
+        instructions.pack(anchor='w', pady=(0,10))
+        
+        # Frame avec scrollbar pour les suggestions
+        suggestions_container = ttk.Frame(suggestions_frame)
+        suggestions_container.pack(fill='both', expand=True)
+        
+        # Canvas et scrollbar
+        canvas = tk.Canvas(suggestions_container)
+        scrollbar = ttk.Scrollbar(suggestions_container, orient="vertical", command=canvas.yview)
+        scrollable_frame = ttk.Frame(canvas)
+        
+        scrollable_frame.bind(
+            "<Configure>",
+            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
+        )
+        
+        canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
+        canvas.configure(yscrollcommand=scrollbar.set)
+        
+        # Ajouter chaque suggestion
+        self.suggestion_vars = []  # Pour les radio buttons
+        for idx, candidate in enumerate(self.candidates):
+            self._create_suggestion_widget(scrollable_frame, idx, candidate)
+        
+        canvas.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
+        
+        # === OPTIONS SUPPLÉMENTAIRES ===
+        options_frame = ttk.LabelFrame(main_frame, text="⚙️ Options Supplémentaires", padding=10)
+        options_frame.pack(fill='x', pady=(0,10))
+        
+        # Variable pour les radio buttons
+        self.selection_var = tk.StringVar(value="suggestion_0" if self.candidates else "manual")
+        
+        # Option de saisie manuelle
+        manual_frame = ttk.Frame(options_frame)
+        manual_frame.pack(fill='x', pady=5)
+        
+        ttk.Radiobutton(manual_frame, text="✏️ Saisie manuelle", 
+                       variable=self.selection_var, value="manual").pack(side='left')
+        ttk.Button(manual_frame, text="🖊️ Ouvrir Éditeur", 
+                  command=self.open_manual_editor).pack(side='right')
+        
+        # Option d'ignorer
+        ignore_frame = ttk.Frame(options_frame)
+        ignore_frame.pack(fill='x', pady=5)
+        
+        ttk.Radiobutton(ignore_frame, text="⏭️ Ignorer ce fichier", 
+                       variable=self.selection_var, value="ignore").pack(side='left')
+        ttk.Label(ignore_frame, text="(Ne pas traiter maintenant)", 
+                 font=('Arial', 9), foreground='gray').pack(side='left', padx=(10,0))
+        
+        # === BOUTONS D'ACTION ===
+        buttons_frame = ttk.Frame(self.dialog)
+        buttons_frame.pack(fill='x', padx=10, pady=10)
+        
+        ttk.Button(buttons_frame, text="✅ Appliquer Sélection", 
+                  command=self.apply_selection).pack(side='left', padx=5)
+        ttk.Button(buttons_frame, text="🔄 Rafraîchir", 
+                  command=self.refresh_suggestions).pack(side='left', padx=5)
+        ttk.Button(buttons_frame, text="❌ Annuler", 
+                  command=self.cancel_selection).pack(side='right', padx=5)
+        
+        # Sélectionner automatiquement la première suggestion si disponible
+        if self.candidates:
+            self.selection_var.set("suggestion_0")
+        
+        # Bind pour la molette de souris sur le canvas
+        def _on_mousewheel(event):
+            canvas.yview_scroll(int(-1*(event.delta/120)), "units")
+        canvas.bind("<MouseWheel>", _on_mousewheel)
+    
+    def _create_suggestion_widget(self, parent, idx, candidate):
+        """Crée un widget pour une suggestion MusicBrainz"""
+        
+        # Frame principal pour cette suggestion
+        suggestion_frame = ttk.Frame(parent, relief='solid', borderwidth=1)
+        suggestion_frame.pack(fill='x', pady=5, padx=5)
+        
+        # Frame pour le radio button et les infos
+        header_frame = ttk.Frame(suggestion_frame)
+        header_frame.pack(fill='x', padx=10, pady=5)
+        
+        # Radio button pour sélectionner cette suggestion
+        radio_btn = ttk.Radiobutton(header_frame, 
+                                   text=f"#{idx+1}", 
+                                   variable=self.selection_var, 
+                                   value=f"suggestion_{idx}")
+        radio_btn.pack(side='left')
+        
+        # Badge de confiance avec couleur
+        confidence = candidate.get('confidence', 0)
+        confidence_color = "#2E8B57" if confidence > 0.8 else "#FF8C00" if confidence > 0.6 else "#DC143C"
+        
+        confidence_frame = ttk.Frame(header_frame)
+        confidence_frame.pack(side='right')
+        
+        confidence_label = tk.Label(confidence_frame, 
+                                   text=f"Confiance: {confidence:.1%}",
+                                   bg=confidence_color, fg="white", 
+                                   font=('Arial', 9, 'bold'),
+                                   padx=8, pady=2)
+        confidence_label.pack()
+        
+        # Informations détaillées
+        info_frame = ttk.Frame(suggestion_frame)
+        info_frame.pack(fill='x', padx=20, pady=(0,10))
+        
+        # Extraire les informations du candidat
+        recording = candidate.get('recording', candidate)
+        
+        # Artiste
+        artist = 'Artiste Inconnu'
+        if 'artist-credit' in recording:
+            artists = []
+            for credit in recording['artist-credit']:
+                if isinstance(credit, dict) and 'artist' in credit:
+                    artists.append(credit['artist'].get('name', ''))
+            if artists:
+                artist = ', '.join(artists)
+        elif 'artist' in recording:
+            artist = recording['artist']
+        
+        # Titre
+        title = recording.get('title', 'Titre inconnu')
+        
+        # Album et année
+        album = 'Album inconnu'
+        year = ''
+        if 'releases' in recording and recording['releases']:
+            release = recording['releases'][0]
+            album = release.get('title', 'Album inconnu')
+            if 'date' in release:
+                year = release['date'][:4] if len(release['date']) >= 4 else release['date']
+        elif 'release-list' in recording and recording['release-list']:
+            release = recording['release-list'][0]
+            album = release.get('title', 'Album inconnu')
+            if 'date' in release:
+                year = release['date'][:4] if len(release['date']) >= 4 else release['date']
+        
+        # Affichage des informations
+        ttk.Label(info_frame, text=f"🎤 Artiste: {artist}", font=('Arial', 10, 'bold')).pack(anchor='w')
+        ttk.Label(info_frame, text=f"🎵 Titre: {title}", font=('Arial', 10)).pack(anchor='w')
+        ttk.Label(info_frame, text=f"💿 Album: {album}", font=('Arial', 9), foreground='#666666').pack(anchor='w')
+        
+        if year:
+            ttk.Label(info_frame, text=f"📅 Année: {year}", font=('Arial', 9), foreground='#666666').pack(anchor='w')
+        
+        # ID MusicBrainz (pour debug)
+        mb_id = recording.get('id', '')
+        if mb_id:
+            ttk.Label(info_frame, text=f"🆔 ID: {mb_id}", font=('Arial', 8), foreground='#999999').pack(anchor='w')
+        
+        # Ligne de séparation si ce n'est pas le dernier
+        if idx < len(self.candidates) - 1:
+            separator = ttk.Separator(suggestion_frame, orient='horizontal')
+            separator.pack(fill='x', padx=10, pady=5)
+    
+    def open_manual_editor(self):
+        """Ouvre l'éditeur de métadonnées manuelles"""
+        self.manual_window = tk.Toplevel(self.dialog)
+        self.manual_window.title(f"✏️ Saisie Manuelle - {Path(self.file_path).name}")
+        self.manual_window.geometry("500x400")
+        self.manual_window.grab_set()
+        
+        # Titre
+        title_label = tk.Label(self.manual_window, 
+                              text="✏️ Saisie Manuelle des Métadonnées",
+                              font=('Arial', 14, 'bold'))
+        title_label.pack(pady=15)
+        
+        # Frame principal
+        main_frame = ttk.Frame(self.manual_window)
+        main_frame.pack(fill='both', expand=True, padx=20, pady=10)
+        
+        # Champs de saisie
+        self.manual_fields = {}
+        fields_info = [
+            ('artist', 'Artiste', '🎤'),
+            ('title', 'Titre', '🎵'),
+            ('album', 'Album', '💿'),
+            ('year', 'Année', '📅'),
+            ('genre', 'Genre', '🎼'),
+            ('track', 'Piste', '🔢')
+        ]
+        
+        for field, label, icon in fields_info:
+            field_frame = ttk.Frame(main_frame)
+            field_frame.pack(fill='x', pady=8)
+            
+            label_widget = ttk.Label(field_frame, text=f"{icon} {label}:", font=('Arial', 11))
+            label_widget.pack(anchor='w')
+            
+            entry = ttk.Entry(field_frame, font=('Arial', 11))
+            entry.pack(fill='x', pady=(2,0))
+            self.manual_fields[field] = entry
+        
+        # Boutons
+        buttons_frame = ttk.Frame(self.manual_window)
+        buttons_frame.pack(fill='x', padx=20, pady=20)
+        
+        ttk.Button(buttons_frame, text="💾 Sauvegarder", 
+                  command=self.save_manual_data).pack(side='left', padx=5)
+        ttk.Button(buttons_frame, text="❌ Annuler", 
+                  command=self.manual_window.destroy).pack(side='right', padx=5)
+        
+        # Focus sur le premier champ
+        self.manual_fields['artist'].focus()
+    
+    def save_manual_data(self):
+        """Sauvegarde les données saisies manuellement"""
+        manual_data = {}
+        for field, entry in self.manual_fields.items():
+            value = entry.get().strip()
+            if value:
+                manual_data[field] = value
+        
+        # Vérifier qu'au moins artiste et titre sont remplis
+        if not (manual_data.get('artist') and manual_data.get('title')):
+            messagebox.showwarning("⚠️ Données Incomplètes", 
+                                 "Veuillez au minimum renseigner l'artiste et le titre.")
+            return
+        
+        # Stocker les données manuelles
+        self.manual_data = manual_data
+        self.selection_var.set("manual")
+        
+        # Fermer la fenêtre
+        self.manual_window.destroy()
+        
+        # Afficher un message de confirmation
+        messagebox.showinfo("✅ Données Sauvées", 
+                           f"Métadonnées manuelles sauvées:\n{manual_data['artist']} - {manual_data['title']}")
+    
+    def refresh_suggestions(self):
+        """Rafraîchit les suggestions (relance une recherche)"""
+        # TODO: Implémenter le rafraîchissement des suggestions
+        messagebox.showinfo("🔄 Rafraîchissement", "Fonctionnalité à implémenter: Nouvelle recherche MusicBrainz")
+    
+    def apply_selection(self):
+        """Applique la sélection choisie"""
+        selection = self.selection_var.get()
+        
+        if selection.startswith("suggestion_"):
+            # Suggestion MusicBrainz sélectionnée
+            idx = int(selection.split("_")[1])
+            if 0 <= idx < len(self.candidates):
+                self.selected_candidate = {
+                    'action': 'accept',
+                    'source': 'musicbrainz',
+                    'data': self.candidates[idx]
+                }
+        elif selection == "manual":
+            # Saisie manuelle
+            if hasattr(self, 'manual_data'):
+                self.selected_candidate = {
+                    'action': 'manual',
+                    'source': 'manual',
+                    'data': self.manual_data
+                }
+            else:
+                messagebox.showwarning("⚠️ Saisie Manuelle", 
+                                     "Veuillez d'abord saisir les métadonnées manuellement.")
+                return
+        elif selection == "ignore":
+            # Ignorer le fichier
+            self.selected_candidate = {
+                'action': 'ignore',
+                'source': 'user',
+                'data': {}
+            }
+        else:
+            messagebox.showwarning("⚠️ Sélection", "Veuillez faire un choix.")
+            return
+        
+        # Fermer le dialogue
+        self.dialog.destroy()
+    
+    def on_search_change(self, event=None):
+        """Callback quand le texte de recherche change"""
+        search_text = self.search_var.get().lower()
+        if not search_text:
+            self.clear_search_highlighting()
+            return
+        
+        self.search_in_logs(search_text)
+    
+    def search_in_logs(self, search_text):
+        """Recherche dans les logs et surligne les résultats"""
+        if not hasattr(self, 'detailed_logs_text'):
+            return
+        
+        # Effacer les surlignes précédents
+        self.clear_search_highlighting()
+        
+        # Obtenir tout le texte
+        content = self.detailed_logs_text.get('1.0', 'end-1c')
+        
+        # Trouver toutes les occurrences
+        self.search_matches = []
+        start = 0
+        
+        while True:
+            pos = content.lower().find(search_text, start)
+            if pos == -1:
+                break
+            
+            # Convertir la position en index tkinter
+            line_start = content.count('\n', 0, pos) + 1
+            char_start = pos - content.rfind('\n', 0, pos) - 1
+            if char_start < 0:
+                char_start = pos
+            
+            line_end = line_start
+            char_end = char_start + len(search_text)
+            
+            self.search_matches.append((f"{line_start}.{char_start}", f"{line_end}.{char_end}"))
+            start = pos + 1
+        
+        # Surligner toutes les occurrences
+        for start_idx, end_idx in self.search_matches:
+            self.detailed_logs_text.tag_add("search_highlight", start_idx, end_idx)
+        
+        # Configurer le style de surligné
+        self.detailed_logs_text.tag_configure("search_highlight", 
+                                             background="#FFFF00", 
+                                             foreground="#000000")
+        
+        # Aller au premier résultat
+        if self.search_matches:
+            self.search_index = 0
+            self.highlight_current_match()
+            self.show_search_status()
+    
+    def search_next(self):
+        """Aller au résultat suivant"""
+        if not self.search_matches:
+            return
+        
+        self.search_index = (self.search_index + 1) % len(self.search_matches)
+        self.highlight_current_match()
+        self.show_search_status()
+    
+    def search_previous(self):
+        """Aller au résultat précédent"""
+        if not self.search_matches:
+            return
+        
+        self.search_index = (self.search_index - 1) % len(self.search_matches)
+        self.highlight_current_match()
+        self.show_search_status()
+    
+    def highlight_current_match(self):
+        """Surligne le résultat actuel en cours"""
+        if not self.search_matches:
+            return
+        
+        # Effacer le surligné "current"
+        self.detailed_logs_text.tag_remove("current_match", '1.0', 'end')
+        
+        # Surligner le résultat actuel
+        start_idx, end_idx = self.search_matches[self.search_index]
+        self.detailed_logs_text.tag_add("current_match", start_idx, end_idx)
+        self.detailed_logs_text.tag_configure("current_match", 
+                                             background="#FF6600", 
+                                             foreground="#FFFFFF")
+        
+        # Faire défiler vers ce résultat
+        self.detailed_logs_text.see(start_idx)
+    
+    def show_search_status(self):
+        """Affiche le statut de la recherche"""
+        if self.search_matches:
+            status = f"🔍 Résultat {self.search_index + 1}/{len(self.search_matches)}"
+        else:
+            search_text = self.search_var.get()
+            if search_text:
+                status = f"🔍 Aucun résultat pour '{search_text}'"
+            else:
+                status = "📊 Logs détaillés prêts"
+        
+        if hasattr(self, 'detailed_logs_status'):
+            self.detailed_logs_status.set(status)
+    
+    def clear_search(self):
+        """Efface la recherche"""
+        self.search_var.set("")
+        self.clear_search_highlighting()
+        if hasattr(self, 'detailed_logs_status'):
+            self.detailed_logs_status.set("📊 Logs détaillés prêts")
+    
+    def clear_search_highlighting(self):
+        """Efface tous les surlignés de recherche"""
+        if hasattr(self, 'detailed_logs_text'):
+            self.detailed_logs_text.tag_remove("search_highlight", '1.0', 'end')
+            self.detailed_logs_text.tag_remove("current_match", '1.0', 'end')
+        
+        self.search_matches = []
+        self.search_index = 0
+    
+    def cancel_selection(self):
+        """Annule la sélection"""
+        self.selected_candidate = None
+        self.dialog.destroy()
 
 
 def main():

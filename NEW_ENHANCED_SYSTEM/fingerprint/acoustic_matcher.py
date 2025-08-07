@@ -7,6 +7,7 @@ Utilise fpcalc pour générer les fingerprints AcoustID
 import subprocess
 import os
 import logging
+import re
 from pathlib import Path
 
 class AcousticMatcher:
@@ -24,6 +25,42 @@ class AcousticMatcher:
         if not os.path.exists(self.fpcalc_path):
             self.logger.warning(f"fpcalc non trouvé à {self.fpcalc_path}")
             self.fpcalc_path = None
+    
+    def clean_fingerprint(self, fingerprint):
+        """Nettoie un fingerprint pour AcoustID avec correction du padding Base64"""
+        if not fingerprint:
+            return fingerprint
+        
+        # Supprimer les espaces et retours à la ligne
+        cleaned = fingerprint.strip()
+        
+        # Supprimer les caractères invisibles (garder seulement ASCII imprimables)
+        cleaned = re.sub(r'[^\x20-\x7E]', '', cleaned)
+        
+        # Garder seulement les caractères Base64 valides
+        base64_pattern = r'[A-Za-z0-9+/=]'
+        cleaned = ''.join(re.findall(base64_pattern, cleaned))
+        
+        # CORRECTION CRITIQUE: Fixer le padding Base64
+        # Supprimer tout padding existant
+        cleaned = cleaned.rstrip('=')
+        
+        # Ajouter le bon padding Base64
+        padding_needed = (4 - len(cleaned) % 4) % 4
+        cleaned += '=' * padding_needed
+        
+        # Vérifier que le Base64 est maintenant valide
+        try:
+            import base64
+            base64.b64decode(cleaned)
+            self.logger.debug(f"✅ Fingerprint Base64 valide après correction")
+        except Exception as e:
+            self.logger.warning(f"⚠️ Fingerprint toujours invalide après correction: {e}")
+        
+        if len(cleaned) != len(fingerprint):
+            self.logger.warning(f"Fingerprint nettoyé: {len(fingerprint)} -> {len(cleaned)} caractères")
+        
+        return cleaned
     
     def generate_fingerprint(self, file_path):
         """Génère un fingerprint acoustique pour un fichier audio"""
@@ -53,18 +90,28 @@ class AcousticMatcher:
             fingerprint_data = {}
             
             for line in lines:
+                line = line.strip()  # Nettoyer les espaces et retours à la ligne
                 if '=' in line:
                     key, value = line.split('=', 1)
+                    key = key.strip()
+                    value = value.strip()
                     if key == 'DURATION':
                         fingerprint_data['duration'] = float(value)
                     elif key == 'FINGERPRINT':
-                        fingerprint_data['fingerprint'] = value
+                        # Nettoyer le fingerprint avant de le stocker
+                        raw_fingerprint = value
+                        cleaned_fingerprint = self.clean_fingerprint(raw_fingerprint)
+                        fingerprint_data['fingerprint'] = cleaned_fingerprint
+                        fingerprint_data['raw_fingerprint'] = raw_fingerprint  # Garder l'original pour debug
             
             if 'fingerprint' not in fingerprint_data:
                 self.logger.error("Pas de fingerprint dans la sortie fpcalc")
                 return None
             
-            self.logger.debug(f"Fingerprint généré: {len(fingerprint_data['fingerprint'])} caractères")
+            self.logger.debug(f"Fingerprint généré: {len(fingerprint_data['fingerprint'])} caractères (nettoyé)")
+            if 'raw_fingerprint' in fingerprint_data:
+                self.logger.debug(f"Fingerprint brut: {len(fingerprint_data['raw_fingerprint'])} caractères")
+            
             return fingerprint_data
             
         except subprocess.TimeoutExpired:

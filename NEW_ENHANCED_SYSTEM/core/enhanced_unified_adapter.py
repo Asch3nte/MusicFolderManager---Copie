@@ -54,6 +54,9 @@ class EnhancedUnifiedProcessorAdapter:
         # Initialiser le processeur unifié
         self.processor = UnifiedAudioProcessor(api_key=api_key)
         
+        # Configurer un logger personnalisé qui redirige vers l'interface
+        self._setup_processor_logging()
+        
         # Callbacks pour l'interface
         self.progress_callback = None
         self.status_callback = None
@@ -108,7 +111,7 @@ class EnhancedUnifiedProcessorAdapter:
         
         Args:
             progress_callback: Fonction(current, total, result) pour la progression
-            status_callback: Fonction(message) pour les messages de statut
+            status_callback: Fonction(message, level="INFO") pour les messages de statut avec niveaux
             result_callback: Fonction(results) pour les résultats finaux
             manual_selection_callback: Fonction(file_path, candidates) pour sélection manuelle
         """
@@ -116,6 +119,62 @@ class EnhancedUnifiedProcessorAdapter:
         self.status_callback = status_callback
         self.result_callback = result_callback
         self.manual_selection_callback = manual_selection_callback
+    
+    def _log(self, message: str, level: str = "INFO"):
+        """Helper pour envoyer des logs avec niveaux à l'interface"""
+        if self.status_callback:
+            try:
+                self.status_callback(message, level)
+            except TypeError:
+                # Fallback pour les anciens callbacks sans paramètre level
+                self.status_callback(message)
+        
+        if self.logger:
+            if level == "ERROR":
+                self.logger.error(message)
+            elif level == "WARNING":
+                self.logger.warning(message)
+            else:
+                self.logger.info(message)
+    
+    def _setup_processor_logging(self):
+        """Configure le logging du processeur pour rediriger vers l'interface"""
+        import logging
+        
+        # Créer un handler personnalisé qui redirige vers l'interface
+        class InterfaceLogHandler(logging.Handler):
+            def __init__(self, adapter):
+                super().__init__()
+                self.adapter = adapter
+            
+            def emit(self, record):
+                message = self.format(record)
+                
+                # Déterminer le niveau de log en fonction du contenu
+                level = "INFO"
+                if "ERROR" in message or "❌" in message or "💥" in message:
+                    level = "ERROR"
+                elif "WARNING" in message or "⚠️" in message:
+                    level = "WARNING"
+                elif "spectral" in message.lower() or "📈" in message or "📊" in message or "🌊" in message:
+                    level = "SPECTRAL"
+                elif "api" in message.lower() or "🌐" in message or "fingerprint" in message.lower() or "🎧" in message:
+                    level = "API"
+                elif "✅" in message:
+                    level = "SUCCESS"
+                elif "cache" in message.lower() or "💾" in message:
+                    level = "CACHE"
+                elif "fingerprint" in message.lower() or "🎵" in message:
+                    level = "FINGERPRINT"
+                
+                # Envoyer vers l'interface
+                self.adapter._log(message, level)
+        
+        # Ajouter le handler au logger du processeur
+        handler = InterfaceLogHandler(self)
+        handler.setLevel(logging.INFO)
+        self.processor.logger.addHandler(handler)
+        self.processor.logger.setLevel(logging.INFO)
     
     def configure_api_key(self, api_key: str):
         """Configure la clé API AcoustID"""
@@ -180,8 +239,9 @@ class EnhancedUnifiedProcessorAdapter:
         audio_files = []
         corrupted_files = []
         
+        # Messages de statut
         if self.status_callback:
-            self.status_callback(f"🔍 Scan du répertoire: {directory}")
+            self.status_callback(f"🔍 Scan du répertoire: {directory}", "INFO")
         
         try:
             # Utiliser os.walk comme dans l'ancienne interface (méthode éprouvée)
@@ -194,23 +254,24 @@ class EnhancedUnifiedProcessorAdapter:
                             corrupted_files.append(file_path)
                             if self.logger:
                                 self.logger.warning(f"Fichier corrompu ignoré: {Path(file_path).name}")
+                            self._log(f"⚠️ Fichier corrompu ignoré: {Path(file_path).name}", "WARNING")
                         else:
                             audio_files.append(file_path)
+                            # Log détaillé pour chaque fichier trouvé
+                            self._log(f"✅ Fichier détecté: {Path(file_path).name}", "SUCCESS")
         
         except Exception as e:
             if self.logger:
                 self.logger.error(f"Erreur lors du scan: {e}")
-            if self.status_callback:
-                self.status_callback(f"❌ Erreur de scan: {e}")
+            self._log(f"❌ Erreur de scan: {e}", "ERROR")
         
         # Sauvegarder les statistiques
         self.detailed_stats['corrupted_files'] = corrupted_files
         
-        # Messages de statut
-        if self.status_callback:
-            self.status_callback(f"📁 {len(audio_files)} fichiers audio trouvés")
-            if corrupted_files:
-                self.status_callback(f"⚠️ {len(corrupted_files)} fichiers corrompus ignorés")
+        # Messages de statut finaux
+        self._log(f"📁 {len(audio_files)} fichiers audio trouvés", "SUCCESS")
+        if corrupted_files:
+            self._log(f"⚠️ {len(corrupted_files)} fichiers corrompus ignorés", "WARNING")
         
         return audio_files
     
@@ -386,17 +447,19 @@ class EnhancedUnifiedProcessorAdapter:
         total_files = len(file_paths)
         
         try:
-            if self.status_callback:
-                self.status_callback(f"🚀 Début du traitement de {total_files} fichiers")
+            self._log(f"🚀 Début du traitement de {total_files} fichiers", "INFO")
+            self._log(f"🎯 Méthodes activées: {', '.join([m.value for m in methods])}", "INFO")
             
             for i, file_path in enumerate(file_paths):
                 # Vérifier si arrêt demandé
                 if self.stop_requested:
-                    if self.status_callback:
-                        self.status_callback("🛑 Traitement arrêté par l'utilisateur")
+                    self._log("🛑 Traitement arrêté par l'utilisateur", "WARNING")
                     break
                 
                 try:
+                    filename = Path(file_path).name
+                    self._log(f"📁 Traitement fichier {i+1}/{total_files}: {filename}", "INFO")
+                    
                     # Vérifier le cache en profondeur si activé
                     cached_result = None
                     if self.enable_deep_cache:
@@ -404,18 +467,28 @@ class EnhancedUnifiedProcessorAdapter:
                     
                     if cached_result:
                         result = cached_result
-                        if self.status_callback:
-                            self.status_callback(f"💾 Cache: {Path(file_path).name}")
+                        self._log(f"💾 Résultat trouvé en cache pour: {filename}", "CACHE")
                     else:
-                        # Traitement normal
-                        if self.status_callback:
-                            self.status_callback(f"🎵 Analyse: {Path(file_path).name}")
+                        # Traitement normal avec logs détaillés
+                        self._log(f"� Début analyse complète: {filename}", "INFO")
                         
+                        # Le processeur va maintenant logger automatiquement ses étapes
                         result = self.processor.process_file(file_path, methods)
+                        
+                        # Log du résultat final
+                        if result.status == AnalysisStatus.SUCCESS:
+                            self._log(f"✅ Analyse réussie ({result.method_used.value}): {filename}", "SUCCESS")
+                            if result.metadata.get('artist') and result.metadata.get('title'):
+                                self._log(f"🎵 Métadonnées: {result.metadata['artist']} - {result.metadata['title']}", "SUCCESS")
+                        elif result.status == AnalysisStatus.MANUAL_REVIEW:
+                            self._log(f"🔍 Révision manuelle requise: {filename}", "WARNING")
+                        else:
+                            self._log(f"❌ Échec analyse: {filename}", "ERROR")
                         
                         # Sauvegarder en cache profond
                         if self.enable_deep_cache and result.status == AnalysisStatus.SUCCESS:
                             self._save_deep_cached_result(file_path, result)
+                            self._log(f"💾 Résultat mis en cache: {filename}", "CACHE")
                     
                     # Si MusicBrainz et sélection manuelle activée
                     if (result.method_used == AnalysisMethod.MUSICBRAINZ and 
