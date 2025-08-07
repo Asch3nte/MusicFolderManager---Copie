@@ -1,0 +1,1 @@
+# Organizer module pour MusicFolderManager

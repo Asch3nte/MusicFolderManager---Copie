@@ -1,0 +1,20 @@
+# Requirements pour l'interface graphique
+# Ces packages sont nécessaires pour l'interface graphique complète
+
+# Interface graphique (inclus avec Python)
+# tkinter - Inclus par défaut avec Python
+
+# Packages optionnels pour améliorer l'interface
+# Si vous voulez des fonctionnalités avancées, installez:
+
+# Pour des icônes et images avancées
+# Pillow>=9.0.0
+
+# Pour des graphiques et charts
+# matplotlib>=3.5.0
+
+# Pour des widgets modernes
+# ttkthemes>=3.2.0
+
+# Note: L'interface fonctionne parfaitement avec tkinter seul
+# Ces packages sont purement optionnels pour des fonctionnalités supplémentaires

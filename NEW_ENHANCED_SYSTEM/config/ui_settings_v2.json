@@ -1,0 +1,7 @@
+{
+  "api_key": "",
+  "source_directory": "",
+  "acoustid_threshold": 0.85,
+  "musicbrainz_threshold": 0.7990088105726872,
+  "spectral_threshold": 0.803964757709251
+}

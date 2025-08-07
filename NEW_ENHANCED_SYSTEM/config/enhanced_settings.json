@@ -1,0 +1,27 @@
+{
+  "ui": {
+    "theme": "default",
+    "window_geometry": "1200x800",
+    "remember_geometry": true,
+    "show_advanced_options": false,
+    "auto_refresh": true
+  },
+  "paths": {
+    "last_source_directory": "",
+    "last_destination_directory": "",
+    "export_directory": "exports",
+    "temp_directory": "temp"
+  },
+  "export": {
+    "default_format": "json",
+    "include_metadata": true,
+    "include_statistics": true,
+    "auto_timestamp": true
+  },
+  "advanced": {
+    "debug_mode": false,
+    "log_level": "INFO",
+    "performance_monitoring": false,
+    "memory_optimization": true
+  }
+}
